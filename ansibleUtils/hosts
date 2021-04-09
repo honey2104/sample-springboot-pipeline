@@ -1,0 +1,2 @@
+[myhost]
+REMOTEHOST ansible_ssh_user=centos
