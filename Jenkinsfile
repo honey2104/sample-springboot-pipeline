@@ -3,6 +3,9 @@ node("${env.JENKINS_NODE_NAME}") {
 stage('CLONE SCM') {
 sh '''
 rm -rf spring-petclinic
+git clone https://github.com/honey2104/sample-springboot-pipeline.git
+mv sample-springboot-pipeline/* .
+rm -rf sample-springboot-pipeline
 git clone ${SCM_REPOSITORY_URL}
 
 '''
