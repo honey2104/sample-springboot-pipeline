@@ -9,7 +9,7 @@ git clone ${SCM_REPOSITORY_URL}
 
 '''
 }
-stage('BUILD ARTIFACT') {
+stage('BUILD ARTEFACT') {
 sh '''
 cd spring-petclinic
 pwd
@@ -17,7 +17,7 @@ pwd
 sudo cp ${WORKSPACE}/spring-petclinic/target/spring-petclinic-2.4.2.jar /mnt/artefact/
 '''
 }
-stage('DEPLOY ARTIFACT') {
+stage('DEPLOY ARTEFACT') {
 sh '''
 pwd
 sed -i s/REMOTEHOST/${REMOTEHOST}/g ansibleUtils/hosts
