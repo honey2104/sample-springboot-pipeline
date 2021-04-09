@@ -1,0 +1,6 @@
+- hosts: myhost
+  tasks:
+    - copy:
+        src: /mnt/artefact/spring-petclinic-2.4.2.jar
+        dest: /home/centos/
+    - shell: nohup java -jar spring-petclinic-2.4.2.jar > 1.log &
