@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation template to create EC2 intance with Jenkins and Ansible installed on it.
+
+Parameters:
+    VpcName:
+        Description: The name of your VPC.
+        Type: String
+    VpcCIDR:
+        Description: Please enter the IP range (CIDR notation) for this VPC
+        Type: String
+        Default: 192.168.0.0/16
+    PublicSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the public subnet
+        Type: String
+        Default: 192.168.1.0/24
+    PrivateSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the private subnet
+        Type: String
+        Default: 192.168.2.0/24
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: Testing
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: Testing-IG
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCIDR
+      AvailabilityZone: !Select
+        - '0'
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: Public Subnet 1
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetCIDR
+      AvailabilityZone: !Select 
+        - '0'
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: Private Subnet 1
+
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public Route Table
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Private Route Table
+    
+  PrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+  
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway  
+  
+  PublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http and ssh to client host
+      VpcId:
+         Ref: VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: <Specify IP address>
+      - IpProtocol: tcp
+        FromPort: 8080
+        ToPort: 8080
+        CidrIp: <Specify IP address>
+        
+  PrivateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow traffic from public security group to this host.
+      VpcId:
+         Ref: VPC
+      SecurityGroupIngress:
+      - IpProtocol: -1
+        FromPort: 0
+        ToPort: 65535
+        SourceSecurityGroupId: !GetAtt PublicSecurityGroup.GroupId
+      
+  PublicLinuxInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: <Specify ami id>
+      InstanceType: t2.small
+      KeyName: <specify key-pair name>
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref PublicSecurityGroup
+          SubnetId: !Ref PublicSubnet1
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: '30'
+            DeleteOnTermination: 'true'
+            Encrypted: 'false'
+      UserData:
+        Fn::Base64: !Sub |
+            #!/bin/bash -xe
+            sudo yum install wget java-1.8.0-openjdk-devel -y
+            sudo yum install epel-release -y
+            sudo yum install ansible -y
+            sudo yum update –y
+            sudo -- sh -c 'rpm --import https://pkg.jenkins.io/redhat/jenkins.io.key'
+            sudo -- sh -c 'wget -O /etc/yum.repos.d/jenkins.repo http://pkg.jenkins-ci.org/redhat/jenkins.repo'
+            sudo yum install jenkins -y
+            sudo systemctl start jenkins
+            sudo systemctl enable jenkins
+            
+  PrivateLinuxInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: <Specify ami id>
+      InstanceType: t2.small
+      KeyName: <Specify key-pair name>
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "false"
+          DeviceIndex: "0"
+          SubnetId: !Ref PrivateSubnet1
+          GroupSet:
+            - !Ref PrivateSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: '30'
+            DeleteOnTermination: 'true'
+            Encrypted: 'false'
+      UserData:
+        Fn::Base64: !Sub |
+            #!/bin/bash -xe
+            sudo yum update -y
+            sudo yum install java-1.8.0-openjdk-devel -y
+
+
+Outputs:
+  VPC:
+    Description: VPC
+    Value: !Ref VPC
